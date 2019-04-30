@@ -1,0 +1,57 @@
+cabal-version:       2.4
+name:                optparse-invertible
+version:             0.1.0.0
+synopsis:            Invertible syntax for optparse-applicative
+homepage:            https://github.com/kim/optparse-invertible
+bug-reports:         https://github.com/kim/optparse-invertible/issues
+license:             BSD-3-Clause
+license-file:        LICENSE
+author:              Kim Altintop
+maintainer:          kim.altintop@gmail.com
+copyright:           (c) 2019 Kim Altintop
+-- category:
+
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+library
+    exposed-modules:
+        Data.Option
+        Options.Invertible
+
+    build-depends:
+        base
+      , containers
+      , formatting
+      , mtl
+      , optparse-applicative
+      , product-profunctors
+      , profunctors
+      , text
+
+    ghc-options:
+        -Wall
+        -Wcompat
+        -Wincomplete-uni-patterns
+        -Wincomplete-record-updates
+        -Wredundant-constraints
+        -fno-print-expanded-synonyms
+        -funbox-small-strict-fields
+
+    default-extensions:
+        BangPatterns
+        DeriveFunctor
+        DeriveGeneric
+        LambdaCase
+        MultiWayIf
+        NamedFieldPuns
+        RecordWildCards
+        StandaloneDeriving
+        StrictData
+        TupleSections
+        TypeApplications
+        ViewPatterns
+
+    hs-source-dirs:      src
+    default-language:    Haskell2010
