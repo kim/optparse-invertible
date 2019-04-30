@@ -17,7 +17,7 @@ data Example = Example
     } deriving Show
 
 
-exampleParser :: Parser' Example Example
+exampleParser :: Parser Example Example
 exampleParser = Example
     <$> (  option "foo" (pure . shown . optFoo) auto (help "The foo")
        <|> option "lol" (pure . shown . optFoo) auto (help "The LOL")
@@ -29,7 +29,7 @@ exampleParser = Example
                    auto
                    (help "Bazzz"))
     <*> argument (pure . pack . optXyz) str (metavar "FILE")
-    <*> (many $ option "lst" (map shown . optLst) auto (help "some ints"))
+    <*> (some $ option "lst" (map shown . optLst) auto (help "some ints"))
     <*> option "def" (pure . pack . optDef) str (value "default value")
   where
     shown :: Show a => a -> Text
@@ -42,4 +42,4 @@ main = do
     print $ fromInverse unparsed ex
     print $ fromInverse unparsed ex { optFoo = 666 }
   where
-    pinfo = info (getCompose exampleParser) briefDesc
+    pinfo = info (getCompose $ fromParser exampleParser) briefDesc
