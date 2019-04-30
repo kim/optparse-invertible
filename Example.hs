@@ -2,9 +2,10 @@
 
 module Main where
 
-import           Data.Functor.Compose (getCompose)
+import           Data.Functor.Compose  (getCompose)
+import           Data.Functor.Identity
 import           Data.Maybe
-import           Data.Text            (Text, pack)
+import           Data.Text             (Text, pack)
 import           Options.Invertible
 
 data Example = Example
@@ -19,8 +20,8 @@ data Example = Example
 
 exampleParser :: Parser Example Example
 exampleParser = Example
-    <$> (  option "foo" (pure . shown . optFoo) auto (help "The foo")
-       <|> option "lol" (pure . shown . optFoo) auto (help "The LOL")
+    <$> (  option "foo" (Identity . shown . optFoo) auto (help "The foo")
+       <|> option "lol" (Identity . shown . optFoo) auto (help "The LOL")
         )
     <*> flag "bar" False True (help "Das Bar")
     <*> (optional $
@@ -28,9 +29,9 @@ exampleParser = Example
                    (maybeToList . fmap shown . optBaz)
                    auto
                    (help "Bazzz"))
-    <*> argument (pure . pack . optXyz) str (metavar "FILE")
+    <*> argument (Identity . pack . optXyz) str (metavar "FILE")
     <*> (some $ option "lst" (map shown . optLst) auto (help "some ints"))
-    <*> option "def" (pure . pack . optDef) str (value "default value")
+    <*> option "def" (Identity . pack . optDef) str (value "default value")
   where
     shown :: Show a => a -> Text
     shown = pack . show

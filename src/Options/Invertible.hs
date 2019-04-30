@@ -18,6 +18,7 @@ module Options.Invertible
 where
 
 import           Control.Applicative
+import           Data.Foldable
 import           Data.Functor.Compose
 import           Data.Option
 import           Data.Set             (Set, fromList)
@@ -60,13 +61,14 @@ instance Alternative (Parser a) where
             (x:_) -> (fst x, map snd cs)
 
 option
-    :: Text
-    -> (a -> [Text])
+    :: Foldable t
+    => Text
+    -> (a -> t Text)
     -> ReadM b
     -> Mod OptionFields b
     -> Parser a b
 option l unread readm mods = Parser . Compose $
-    (Inverse $ fromList . map (Opt l) . unread,)
+    (Inverse $ fromList . map (Opt l) . toList . unread,)
         <$> Opt.option readm (mods <> long (unpack l))
 
 flag
@@ -97,10 +99,11 @@ switch l mods = Parser . Compose $
         <$> Opt.switch (mods <> long (unpack l))
 
 argument
-    :: (a -> [Text])
+    :: Foldable t
+    => (a -> t Text)
     -> ReadM b
     -> Mod ArgumentFields b
     -> Parser a b
 argument unread readm mods = Parser . Compose $
-    (Inverse $ fromList . map Arg . unread,)
+    (Inverse $ fromList . map Arg . toList . unread,)
         <$> Opt.argument readm mods
