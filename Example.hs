@@ -2,7 +2,6 @@
 
 module Main where
 
-import           Data.Functor.Compose  (getCompose)
 import           Data.Functor.Identity
 import           Data.Maybe
 import           Data.Text             (Text, pack)
@@ -38,9 +37,9 @@ exampleParser = Example
 
 main :: IO ()
 main = do
-    (unparsed, ex) <- execParser pinfo
+    (inv, ex) <- execParser pinfo
     print (ex :: Example)
-    print $ fromInverse unparsed ex
-    print $ fromInverse unparsed ex { optFoo = 666 }
+    print $ inverse inv ex
+    print $ inverse inv ex { optFoo = 666 }
   where
-    pinfo = info (getCompose $ fromParser exampleParser) briefDesc
+    pinfo = info exampleParser briefDesc

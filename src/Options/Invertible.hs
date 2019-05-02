@@ -4,8 +4,10 @@
 {-# LANGUAGE OverloadedLists            #-}
 
 module Options.Invertible
-    ( Parser  (fromParser)
-    , Inverse (..)
+    ( Parser
+    , Inverse
+
+    , inverse
 
     , option
     , flag
@@ -13,11 +15,14 @@ module Options.Invertible
     , switch
     , argument
 
+    , info
+
     , module Options.Applicative
     )
 where
 
 import           Control.Applicative
+import           Data.Coerce          (coerce)
 import           Data.Foldable
 import           Data.Functor.Compose
 import           Data.Option
@@ -28,25 +33,28 @@ import           Options.Applicative  hiding
     , argument
     , flag
     , flag'
+    , info
     , option
     , switch
     )
 import qualified Options.Applicative  as Opt
 
 
-newtype Inverse a = Inverse
-    { fromInverse :: (a -> Set (Opt Text))
-    } deriving (Semigroup, Monoid)
+newtype Inverse a = Inverse ((a -> Set (Opt Text)))
+    deriving (Semigroup, Monoid)
 
-newtype Parser a b = Parser
-    { fromParser :: Compose Opt.Parser ((,) (Inverse a)) b
-    } deriving (Functor, Applicative)
+inverse :: Inverse a -> a -> Set (Opt Text)
+inverse = coerce
+
+newtype Parser a b = Parser (Compose Opt.Parser ((,) (Inverse a)) b)
+    deriving (Functor, Applicative)
 
 instance Alternative (Parser a) where
-    empty = Parser $ Compose empty
+    empty = Parser $
+        Compose empty
 
-    a <|> b = Parser $  fromParser a
-                    <|> fromParser b
+    a <|> b = Parser $
+        coerce a <|> coerce b
 
     many (Parser (Compose c)) = Parser . Compose $ do
         cs <- many c
@@ -107,3 +115,6 @@ argument
 argument unread readm mods = Parser . Compose $
     (Inverse $ fromList . map Arg . toList . unread,)
         <$> Opt.argument readm mods
+
+info :: Parser a b -> InfoMod (Inverse a, b) -> ParserInfo (Inverse a, b)
+info = Opt.info . coerce
