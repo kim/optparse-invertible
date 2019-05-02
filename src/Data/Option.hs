@@ -9,6 +9,7 @@
 
 module Data.Option
     ( Cmd     (..)
+    , SomeCmd (..)
     , Opt     (..)
     , SomeOpt (..)
     , Var
@@ -49,6 +50,13 @@ instance Buildable a => Buildable (Cmd a) where
     build (Cmd exe opts) =
         mconcat . intersperse " " $ Build.fromString exe : map build opts
 
+data SomeCmd = SomeCmd FilePath [SomeOpt]
+    deriving Show
+
+instance Buildable SomeCmd where
+    build (SomeCmd exe opts) =
+        mconcat . intersperse " " $ Build.fromString exe : map build opts
+
 
 data Opt a where
     Flag :: Text      -> Opt a
@@ -70,8 +78,15 @@ instance Buildable a => Buildable (Opt a) where
 
 
 data SomeOpt where
-    ShOpt  :: Opt (Sh a) -> SomeOpt
-    LitOpt :: Opt Text   -> SomeOpt
+    ShOpt  :: (Buildable a, Show a) => Opt (Sh a) -> SomeOpt
+    LitOpt ::                          Opt Text   -> SomeOpt
+
+deriving instance Show SomeOpt
+
+instance Buildable SomeOpt where
+    build = \case
+        ShOpt  opt -> build opt
+        LitOpt opt -> build opt
 
 
 newtype Var = Var Text
