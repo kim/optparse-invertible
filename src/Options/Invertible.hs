@@ -3,17 +3,21 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedLists            #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module Options.Invertible
     ( Parser
+    , Parser'
     , Inverse
-
-    , inverse
 
     , option
     , flag
     , flag'
     , switch
     , argument
+
+    , subparser
+    --, command
 
     , info
 
@@ -22,7 +26,7 @@ module Options.Invertible
 where
 
 import           Control.Applicative
-import           Data.Coerce          (coerce)
+import           Data.Bool            (bool)
 import           Data.Foldable
 import           Data.Functor.Compose
 import           Data.Option
@@ -35,34 +39,32 @@ import           Options.Applicative  hiding
     , flag'
     , info
     , option
+    , subparser
     , switch
     )
 import qualified Options.Applicative  as Opt
 
 
-newtype Inverse a = Inverse ((a -> Set (Opt Text)))
-    deriving (Semigroup, Monoid)
+type Inverse a = (a -> Set (Opt Text))
 
-inverse :: Inverse a -> a -> Set (Opt Text)
-inverse = coerce
+type Parser' a = Parser a a
 
-newtype Parser a b = Parser (Compose Opt.Parser ((,) (Inverse a)) b)
-    deriving (Functor, Applicative)
+type Parser a b = Compose Opt.Parser ((,) (Inverse a)) b
 
-instance Alternative (Parser a) where
-    empty = Parser $
-        Compose empty
+instance {-# OVERLAPPING #-}
+    Alternative (Compose Opt.Parser ((,) (Inverse a)))
+  where
+    empty = Compose empty
 
-    a <|> b = Parser $
-        coerce a <|> coerce b
+    (Compose a) <|> (Compose b) = Compose $ a <|> b
 
-    many (Parser (Compose c)) = Parser . Compose $ do
+    many (Compose c) = Compose $ do
         cs <- many c
         pure $ case cs of
            []    -> (mempty, [])
            (x:_) -> (fst x, map snd cs)
 
-    some (Parser (Compose c)) = Parser . Compose $ do
+    some (Compose c) = Compose $ do
         cs <- some c
         pure $ case cs of
             []    -> (mempty, [])
@@ -75,8 +77,8 @@ option
     -> ReadM b
     -> Mod OptionFields b
     -> Parser a b
-option l unread readm mods = Parser . Compose $
-    (Inverse $ fromList . map (Opt l) . toList . unread,)
+option l unread readm mods = Compose $
+    (fromList . map (Opt l) . toList . unread,)
         <$> Opt.option readm (mods <> long (unpack l))
 
 flag
@@ -85,8 +87,8 @@ flag
     -> b    -- ^ active
     -> Mod FlagFields b
     -> Parser a b
-flag l def act mods = Parser . Compose $
-    (Inverse $ const [Flag l],)
+flag l def act mods = Compose $
+    (const [Flag l],)
         <$> Opt.flag def act (mods <> Opt.long (unpack l))
 
 flag'
@@ -94,16 +96,17 @@ flag'
     -> b
     -> Mod FlagFields b
     -> Parser a b
-flag' l act mods = Parser . Compose $
-    (Inverse $ const [Flag l],)
+flag' l act mods = Compose $
+    (const [Flag l],)
         <$> Opt.flag' act (mods <> long (unpack l))
 
 switch
     :: Text
+    -> (a -> Bool)
     -> Mod FlagFields Bool
     -> Parser a Bool
-switch l mods = Parser . Compose $
-    (Inverse $ const [Flag l],)
+switch l f mods = Compose $
+    (bool mempty [Flag l] . f,)
         <$> Opt.switch (mods <> long (unpack l))
 
 argument
@@ -112,9 +115,12 @@ argument
     -> ReadM b
     -> Mod ArgumentFields b
     -> Parser a b
-argument unread readm mods = Parser . Compose $
-    (Inverse $ fromList . map Arg . toList . unread,)
+argument unread readm mods = Compose $
+    (fromList . map Arg . toList . unread,)
         <$> Opt.argument readm mods
 
+subparser :: Mod CommandFields (Inverse a, b) -> Parser a b
+subparser = Compose . Opt.subparser
+
 info :: Parser a b -> InfoMod (Inverse a, b) -> ParserInfo (Inverse a, b)
-info = Opt.info . coerce
+info = Opt.info . getCompose
