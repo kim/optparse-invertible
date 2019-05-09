@@ -1,20 +1,19 @@
-{-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE GADTs                 #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE StandaloneDeriving    #-}
-{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE DataKinds          #-}
+{-# LANGUAGE DeriveFoldable     #-}
+{-# LANGUAGE DeriveTraversable  #-}
+{-# LANGUAGE GADTs              #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE RankNTypes         #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Data.Option
-    ( Cmd     (..)
-    , SomeCmd (..)
-    , Opt     (..)
-    , SomeOpt (..)
+    ( Cmd  (..)
+    , Opts (..)
+    , nil
+    , Opt  (..)
     , Var
-    , Sh      (..)
-    , Op      (..)
+    , Sh   (..)
+    , Op   (..)
 
     , Eval
     , EvalError
@@ -22,7 +21,6 @@ module Data.Option
 
     , evalCmd
     , evalOpt
-    , evalSomeOpt
     , evalSh
     , evalShInt
     , evalArith
@@ -31,32 +29,67 @@ where
 
 import           Control.Monad.Except
 import           Control.Monad.Reader
-import           Data.List                  (intersperse)
+import           Data.Bifoldable
+import           Data.Bifunctor
+import           Data.Bitraversable
 import           Data.Proxy                 (Proxy (..))
 import           Data.String                (IsString (..))
 import           Data.Text                  (Text)
 import qualified Data.Text                  as Text
+import qualified Data.Text.Lazy             as LText
 import qualified Data.Text.Lazy.Builder     as Build
 import qualified Data.Text.Lazy.Builder.Int as Build
 import qualified Data.Text.Read             as Read
 import           Data.Typeable              (TypeRep, Typeable, typeOf, typeRep)
+import           Data.Void
 import           Formatting.Buildable       (Buildable (..))
 
 
-data Cmd a = Cmd FilePath [Opt a]
+data Cmd a = Cmd FilePath a
     deriving (Eq, Ord, Show, Read, Functor)
 
 instance Buildable a => Buildable (Cmd a) where
-    build (Cmd exe opts) =
-        mconcat . intersperse " " $ Build.fromString exe : map build opts
+    build (Cmd exe opts) = Build.fromString exe <> " " <> build opts
 
-data SomeCmd = SomeCmd FilePath [SomeOpt]
-    deriving Show
+data Opts a b where
+    Nil  ::               Opts a b
+    (:&) :: Opt a -> b -> Opts a b
 
-instance Buildable SomeCmd where
-    build (SomeCmd exe opts) =
-        mconcat . intersperse " " $ Build.fromString exe : map build opts
+infixr 7 :&
 
+nil :: Opts Void Void
+nil = Nil
+
+deriving instance (Show a, Show b) => Show (Opts a b)
+
+deriving instance Functor     (Opts a)
+deriving instance Foldable    (Opts a)
+deriving instance Traversable (Opts a)
+
+instance Bifunctor Opts where
+    bimap f g (Opt  t x :& xs) = Opt  t (f x) :& g xs
+    bimap _ g (Flag t   :& xs) = Flag t       :& g xs
+    bimap _ g (Arg  t   :& xs) = Arg  t       :& g xs
+    bimap _ _ Nil              = Nil
+
+instance Bifoldable Opts where
+    bifoldMap f g (Opt  _ x :& xs) = f x <> g xs
+    bifoldMap _ g (_        :& xs) = g xs
+    bifoldMap _ _ Nil              = mempty
+
+instance Bitraversable Opts where
+    bitraverse f g (Opt  t x :& xs) = (\y ys -> Opt t y :& ys) <$> f x <*> g xs
+    bitraverse _ g (Flag t   :& xs) = (Flag t :&) <$> g xs
+    bitraverse _ g (Arg  t   :& xs) = (Arg  t :&) <$> g xs
+    bitraverse _ _ Nil              = pure Nil
+
+instance (Buildable a, Buildable b) => Buildable (Opts a b) where
+    build = \case
+        Nil    -> mempty
+        x :& y -> Build.fromLazyText
+                . LText.stripEnd     -- 'Nil' causes a trailing whitespace
+                . Build.toLazyText
+                $ build x <> " " <> build y
 
 data Opt a where
     Flag :: Text      -> Opt a
@@ -76,19 +109,6 @@ instance Buildable a => Buildable (Opt a) where
         Opt  n v -> "--" <> Build.fromText n <> "=" <> build v
         Arg  a   -> Build.fromText a
 
-
-data SomeOpt where
-    ShOpt  :: (Buildable a, Show a) => Opt (Sh a) -> SomeOpt
-    LitOpt ::                          Opt Text   -> SomeOpt
-
-deriving instance Show SomeOpt
-
-instance Buildable SomeOpt where
-    build = \case
-        ShOpt  opt -> build opt
-        LitOpt opt -> build opt
-
-
 newtype Var = Var Text
     deriving (Eq, Ord, Show, Read)
 
@@ -97,7 +117,6 @@ instance IsString Var where
 
 instance Buildable Var where
     build (Var x) = Build.fromText x
-
 
 data Sh a where
     ShNum  :: Int  -> Sh Int
@@ -149,15 +168,42 @@ instance Buildable Op where
         Div -> "/"
 
 
+class CanEval a where
+    eval :: Opt a -> Eval (Opt Text)
+
+instance CanEval Text where
+    eval = pure
+
+instance CanEval (Sh a) where
+    eval = evalOpt
+
+instance CanEval Void where
+    eval _ = throwError Absurd
+
+class CanEvalF a where
+    evalF :: CanEval b => Opts b a -> Eval [Opt Text]
+
+instance CanEvalF Void where
+    evalF = \case
+        Nil    -> pure []
+        x :& _ -> pure <$> eval x
+
+instance (CanEval a, CanEvalF b) => CanEvalF (Opts a b) where
+    evalF = \case
+        Nil    -> pure []
+        x :& y -> (:) <$> eval x <*> evalF y
+
+
 data EvalEnv = EvalEnv
     { eeVars :: Var -> Maybe Text
     , eeCmds :: forall a. Cmd a -> Maybe Text
     }
 
 data EvalError
-    = UnsetVariable  Var
-    | UnknownCommand TypeRep
-    | CastError      TypeRep TypeRep
+    = UnknownVariable Var
+    | UnknownCommand  TypeRep
+    | CastError       TypeRep TypeRep
+    | Absurd
     deriving Show
 
 type Eval a = ExceptT EvalError (Reader EvalEnv) a
@@ -169,8 +215,11 @@ runEval
     -> Either EvalError a
 runEval vs cs = flip runReader (EvalEnv vs cs) . runExceptT
 
-evalCmd :: Cmd (Sh a) -> Eval (Cmd Text)
-evalCmd (Cmd exe opts) = Cmd exe <$> traverse evalOpt opts
+evalCmd
+    :: (CanEval a, CanEvalF b)
+    => Cmd (Opts a b)
+    -> Eval (Cmd [Opt Text])
+evalCmd (Cmd exe opts) = Cmd exe <$> evalF opts
 
 evalOpt :: Opt (Sh a) -> Eval (Opt Text)
 evalOpt = \case
@@ -178,11 +227,6 @@ evalOpt = \case
     Arg  x   -> pure $ Arg  x
     Opt  k v -> evalSh v >>= \case
         ShStr x -> pure $ Opt k x
-
-evalSomeOpt :: SomeOpt -> Eval (Opt Text)
-evalSomeOpt = \case
-    ShOpt  x -> evalOpt x
-    LitOpt x -> pure x
 
 evalSh :: Sh a -> Eval (Sh Text)
 evalSh = \case
@@ -198,7 +242,7 @@ evalSh = \case
     lookupVar :: Var -> Eval Text
     lookupVar x = do
         vars <- asks eeVars
-        note (UnsetVariable x) $ vars x
+        note (UnknownVariable x) $ vars x
 
     runCmd :: Typeable x => Cmd x -> Eval Text
     runCmd x = do
