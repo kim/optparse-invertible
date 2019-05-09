@@ -6,7 +6,7 @@
 {-# LANGUAGE RankNTypes         #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Data.Option
+module Data.CLI.Option
     ( Cmd  (..)
     , Opts (..)
     , nil

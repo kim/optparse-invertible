@@ -17,7 +17,8 @@ module Options.Invertible
     , argument
 
     , subparser
-    --, command
+    , hsubparser
+    , command
 
     , info
 
@@ -26,17 +27,20 @@ module Options.Invertible
 where
 
 import           Control.Applicative
+import           Data.Bifunctor
 import           Data.Bool            (bool)
+import           Data.CLI.Option
 import           Data.Foldable
 import           Data.Functor.Compose
-import           Data.Option
-import           Data.Set             (Set, fromList)
+import           Data.Set             (Set, fromList, singleton)
 import           Data.Text            (Text, unpack)
 import           Options.Applicative  hiding
     ( Parser
     , argument
+    , command
     , flag
     , flag'
+    , hsubparser
     , info
     , option
     , subparser
@@ -82,22 +86,26 @@ option l unread readm mods = Compose $
         <$> Opt.option readm (mods <> long (unpack l))
 
 flag
-    :: Text
-    -> b    -- ^ default
-    -> b    -- ^ active
+    :: Eq b
+    => Text
+    -> (a -> b)
+    -> b                -- ^ default
+    -> b                -- ^ active
     -> Mod FlagFields b
     -> Parser a b
-flag l def act mods = Compose $
-    (const [Flag l],)
+flag l f def act mods = Compose $
+    (bool mempty [Flag l] . (== act) . f,)
         <$> Opt.flag def act (mods <> Opt.long (unpack l))
 
 flag'
-    :: Text
+    :: Eq b
+    => Text
+    -> (a -> b)
     -> b
     -> Mod FlagFields b
     -> Parser a b
-flag' l act mods = Compose $
-    (const [Flag l],)
+flag' l f act mods = Compose $
+    (bool mempty [Flag l] . (== act) . f,)
         <$> Opt.flag' act (mods <> long (unpack l))
 
 switch
@@ -121,6 +129,32 @@ argument unread readm mods = Compose $
 
 subparser :: Mod CommandFields (Inverse a, b) -> Parser a b
 subparser = Compose . Opt.subparser
+
+hsubparser :: Mod CommandFields (Inverse a, b) -> Parser a b
+hsubparser = Compose . Opt.hsubparser
+
+command
+    :: Text
+    -> (Inverse a -> Inverse b)
+    -> Parser a b
+    -> InfoMod (Inverse b, b)
+    -> Mod CommandFields (Inverse b, b)
+command cmd f p imod =
+    Opt.command (unpack cmd) (Opt.info p' imod)
+  where
+    p' = first (fmap (singleton (Arg cmd) <>) . f) <$> getCompose p
+
+{-
+ -command
+ -    :: Text
+ -    -> (Inverse a -> (b -> Maybe (Set (Opt Text))))
+ -    -> Parser a b
+ -    -> InfoMod (b -> Maybe (Set (Opt Text)), b)
+ -    -> Mod CommandFields (b -> Maybe (Set (Opt Text)), b)
+ -command cmd f p imod =
+ -    Opt.command (unpack cmd) $
+ -        Opt.info (first f <$> getCompose p) imod
+ -}
 
 info :: Parser a b -> InfoMod (Inverse a, b) -> ParserInfo (Inverse a, b)
 info = Opt.info . getCompose

@@ -1,17 +1,20 @@
 {-# LANGUAGE ApplicativeDo     #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
+import           Control.Lens          (to, view)
 import           Data.Bifunctor
 import           Data.Functor.Compose
 import           Data.Functor.Identity
+import           Data.Generics.Sum     (_Ctor)
 import           Data.List.NonEmpty    (NonEmpty)
 import qualified Data.List.NonEmpty    as NE
 import           Data.Maybe
-import           Data.Option           (Opt (Arg))
-import           Data.Set              (singleton)
 import           Data.Text             (Text, pack)
+import           GHC.Generics          (Generic)
 import           Options.Invertible
 
 data Example = Example
@@ -23,20 +26,21 @@ data Example = Example
     , optNe  :: NonEmpty Int
     , optDef :: String
     , optCmd :: Cmd
-    } deriving Show
+    } deriving (Show, Generic)
 
 data Cmd
     = Start StartOptions
     | Stop  StopOptions
-    deriving Show
+    | Pause
+    deriving (Show, Generic)
 
 data StartOptions = StartOptions
     { optStartAfterSecs :: Word
-    } deriving Show
+    } deriving (Show, Generic)
 
 data StopOptions = StopOptions
     { optStopGracefully :: Bool
-    } deriving Show
+    } deriving (Show, Generic)
 
 exampleParser :: Parser' Example
 exampleParser = do
@@ -45,7 +49,7 @@ exampleParser = do
        <|> option "lol" (Identity . shown . optFoo) auto (help "The LOL")
         )
     optBar <-
-        flag "bar" False True (help "Das Bar")
+        flag "bar" optBar False True (help "Das Bar")
     optBaz <-
         optional $
             option "baz"
@@ -62,34 +66,30 @@ exampleParser = do
     optDef <-
         option "def" (Identity . pack . optDef) str (value "default value")
     optCmd <-
-         Compose $ first ((. optCmd)) <$> getCompose cmdParser
+         Compose $ first (. optCmd) <$> getCompose cmdParser
 
     pure Example {..}
 
 cmdParser :: Parser' Cmd
-cmdParser = subparser $ start <> stop
+cmdParser = hsubparser $ start <> stop <> pause
   where
-    start       = command "start" startInfo
-    startInfo   = info startParser (progDesc "Start it")
-    startParser = Compose $
-        let
-            sp       = Start <$> startOptionsParser
-            inv' inv = \case
-                Start so -> singleton (Arg "start") <> inv so
-                _        -> mempty
-         in
-            first inv' <$> getCompose sp
+    start =
+        command "start"
+                (\f -> view (_Ctor @"Start" . to f))
+                (Start <$> startOptionsParser)
+                (progDesc "Start it")
 
-    stop       = command "stop" stopInfo
-    stopInfo   = info stopParser (progDesc "Stop it")
-    stopParser = Compose $
-        let
-            sp = Stop <$> stopOptionsParser
-            inv' inv = \case
-                Stop so -> singleton (Arg "stop") <> inv so
-                _       -> mempty
-         in
-            first inv' <$> getCompose sp
+    stop =
+        command "stop"
+                (\f -> view (_Ctor @"Stop" . to f))
+                (Stop <$> stopOptionsParser)
+                (progDesc "Stop it")
+
+    pause =
+        command "pause"
+                (\f -> view (_Ctor @"Pause" . to f))
+                (pure Pause)
+                (progDesc "Pause it")
 
 startOptionsParser :: Parser' StartOptions
 startOptionsParser = StartOptions
@@ -102,13 +102,10 @@ stopOptionsParser = StopOptions
 
 main :: IO ()
 main = do
-    (inv, ex) <- execParser pinfo
+    (inv, ex) <- execParser (info exampleParser briefDesc)
     print (ex :: Example)
     print $ inv ex
-    print $ inv ex { optFoo = 666 }
-  where
-    pinfo :: ParserInfo (Inverse Example, Example)
-    pinfo = info exampleParser briefDesc
+    print $ inv ex { optCmd = Stop (StopOptions True) }
 
 --------------------------------------------------------------------------------
 
